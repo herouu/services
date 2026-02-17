@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
@@ -125,136 +124,7 @@ func (a *App) SelectDirectory() (string, error) {
 
 // CheckAdminPrivileges 检查管理员权限
 func (a *App) CheckAdminPrivileges() bool {
-	return isUserAnAdmin()
-}
-
-func isUserAnAdmin() bool {
-	if _, err := os.Open("\\\\.\\PHYSICALDRIVE0"); err == nil {
-		return true
-	}
-
-	var sid *windows.SID
-	err := windows.AllocateAndInitializeSid(
-		&windows.SECURITY_NT_AUTHORITY,
-		2,
-		windows.SECURITY_BUILTIN_DOMAIN_RID,
-		windows.DOMAIN_ALIAS_RID_ADMINS,
-		0, 0, 0, 0, 0, 0,
-		&sid,
-	)
-	if err != nil {
-		return false
-	}
-	defer windows.FreeSid(sid)
-
-	token, err := windows.OpenCurrentProcessToken()
-	if err != nil {
-		token, err = openCurrentThreadTokenSafe()
-		if err != nil {
-			return false
-		}
-	}
-	defer token.Close()
-
-	member, err := token.IsMember(sid)
-	if err != nil {
-		return false
-	}
-
-	return member
-}
-
-// openCurrentThreadTokenSafe 安全地获取当前线程的访问令牌
-func openCurrentThreadTokenSafe() (windows.Token, error) {
-	if err := impersonateSelf(); err != nil {
-		return 0, err
-	}
-	defer revertToSelf()
-
-	thread, err := getCurrentThread()
-	if err != nil {
-		return 0, err
-	}
-
-	var token windows.Token
-	err = openThreadToken(thread, windows.TOKEN_QUERY, true, &token)
-	if err != nil {
-		return 0, err
-	}
-
-	return token, nil
-}
-
-// Windows API 函数声明
-var (
-	modadvapi32 = windows.NewLazySystemDLL("advapi32.dll")
-	modkernel32 = windows.NewLazySystemDLL("kernel32.dll")
-
-	procGetCurrentThread = modkernel32.NewProc("GetCurrentThread")
-	procOpenThreadToken  = modadvapi32.NewProc("OpenThreadToken")
-	procImpersonateSelf  = modadvapi32.NewProc("ImpersonateSelf")
-	procRevertToSelf     = modadvapi32.NewProc("RevertToSelf")
-)
-
-// getCurrentThread 获取当前线程的伪句柄
-func getCurrentThread() (windows.Handle, error) {
-	r0, _, e1 := syscall.Syscall(procGetCurrentThread.Addr(), 0, 0, 0, 0)
-	handle := windows.Handle(r0)
-	if handle == 0 {
-		if e1 != 0 {
-			return 0, error(e1)
-		}
-		return 0, syscall.EINVAL
-	}
-	return handle, nil
-}
-
-// openThreadToken 打开线程访问令牌
-func openThreadToken(h windows.Handle, access uint32, self bool, token *windows.Token) error {
-	var _p0 uint32
-	if self {
-		_p0 = 1
-	}
-	r1, _, e1 := syscall.Syscall6(
-		procOpenThreadToken.Addr(),
-		4,
-		uintptr(h),
-		uintptr(access),
-		uintptr(_p0),
-		uintptr(unsafe.Pointer(token)),
-		0, 0,
-	)
-	if r1 == 0 {
-		if e1 != 0 {
-			return error(e1)
-		}
-		return syscall.EINVAL
-	}
-	return nil
-}
-
-// impersonateSelf 模拟自身
-func impersonateSelf() error {
-	r0, _, e1 := syscall.Syscall(procImpersonateSelf.Addr(), 1, uintptr(2), 0, 0)
-	if r0 == 0 {
-		if e1 != 0 {
-			return error(e1)
-		}
-		return syscall.EINVAL
-	}
-	return nil
-}
-
-// revertToSelf 恢复到原始安全上下文
-func revertToSelf() error {
-	r0, _, e1 := syscall.Syscall(procRevertToSelf.Addr(), 0, 0, 0, 0)
-	if r0 == 0 {
-		if e1 != 0 {
-			return error(e1)
-		}
-		return syscall.EINVAL
-	}
-	return nil
+	return a.environmentManager.IsAdmin()
 }
 
 // SetAutoStart 设置开机自启动

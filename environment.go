@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -19,10 +20,130 @@ func NewEnvironmentManager() *EnvironmentManager {
 	return &EnvironmentManager{}
 }
 
+// IsAdmin 检查是否以管理员权限运行
+func (em *EnvironmentManager) IsAdmin() bool {
+	if _, err := os.Open("\\\\.\\PHYSICALDRIVE0"); err == nil {
+		return true
+	}
+
+	var sid *windows.SID
+	err := windows.AllocateAndInitializeSid(
+		&windows.SECURITY_NT_AUTHORITY,
+		2,
+		windows.SECURITY_BUILTIN_DOMAIN_RID,
+		windows.DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&sid,
+	)
+	if err != nil {
+		return false
+	}
+	defer windows.FreeSid(sid)
+
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		token, err = openCurrentThreadTokenSafe()
+		if err != nil {
+			return false
+		}
+	}
+	defer token.Close()
+
+	member, err := token.IsMember(sid)
+	if err != nil {
+		return false
+	}
+
+	return member
+}
+
+// openCurrentThreadTokenSafe 安全地获取当前线程的访问令牌
+func openCurrentThreadTokenSafe() (windows.Token, error) {
+	if err := impersonateSelf(); err != nil {
+		return 0, err
+	}
+	defer revertToSelf()
+
+	thread, err := getCurrentThread()
+	if err != nil {
+		return 0, err
+	}
+
+	var token windows.Token
+	err = openThreadToken(thread, windows.TOKEN_QUERY, true, &token)
+	if err != nil {
+		return 0, err
+	}
+
+	return token, nil
+}
+
+// Windows API 函数声明
+var (
+	modadvapi32 = windows.NewLazySystemDLL("advapi32.dll")
+	modkernel32 = windows.NewLazySystemDLL("kernel32.dll")
+
+	procGetCurrentThread = modkernel32.NewProc("GetCurrentThread")
+	procOpenThreadToken  = modadvapi32.NewProc("OpenThreadToken")
+	procImpersonateSelf  = modadvapi32.NewProc("ImpersonateSelf")
+	procRevertToSelf     = modadvapi32.NewProc("RevertToSelf")
+)
+
+// getCurrentThread 获取当前线程的伪句柄
+func getCurrentThread() (windows.Handle, error) {
+	r0, _, e1 := syscall.Syscall(procGetCurrentThread.Addr(), 0, 0, 0, 0)
+	handle := windows.Handle(r0)
+	if handle == 0 {
+		if e1 != 0 {
+			return 0, error(e1)
+		}
+		return 0, syscall.EINVAL
+	}
+	return handle, nil
+}
+
+// openThreadToken 打开线程令牌
+func openThreadToken(thread windows.Handle, access uint32, openAsSelf bool, token *windows.Token) error {
+	r0, _, e1 := syscall.Syscall6(procOpenThreadToken.Addr(), 4,
+		uintptr(thread), uintptr(access), uintptr(0), uintptr(0), 0, 0)
+	if r0 == 0 {
+		if e1 != 0 {
+			return error(e1)
+		}
+		return syscall.EINVAL
+	}
+	*token = windows.Token(r0)
+	return nil
+}
+
+// impersonateSelf 模拟自身
+func impersonateSelf() error {
+	r0, _, e1 := syscall.Syscall(procImpersonateSelf.Addr(), 1, 2, 0, 0)
+	if r0 == 0 {
+		if e1 != 0 {
+			return error(e1)
+		}
+		return syscall.EINVAL
+	}
+	return nil
+}
+
+// revertToSelf 恢复自身
+func revertToSelf() error {
+	r0, _, e1 := syscall.Syscall(procRevertToSelf.Addr(), 0, 0, 0, 0)
+	if r0 == 0 {
+		if e1 != 0 {
+			return error(e1)
+		}
+		return syscall.EINVAL
+	}
+	return nil
+}
+
 // AddSystemEnvironmentVariable 添加系统级环境变量
 func (em *EnvironmentManager) AddSystemEnvironmentVariable(varName, varValue string) error {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, 
-		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, 
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
 		registry.ALL_ACCESS)
 	if err != nil {
 		return fmt.Errorf("无法打开系统环境变量注册表 (需要管理员权限): %v", err)
@@ -40,12 +161,12 @@ func (em *EnvironmentManager) AddSystemEnvironmentVariable(varName, varValue str
 	if strings.ToUpper(varName) == "PATH" {
 		var existingPath string
 		var readErr error
-		
+
 		existingPath, _, readErr = key.GetStringValue("PATH")
 		if readErr != nil && readErr != registry.ErrNotExist {
 			return fmt.Errorf("无法读取现有PATH变量: %v", readErr)
 		}
-		
+
 		if existingPath != "" {
 			pathEntries := strings.Split(existingPath, ";")
 			for _, entry := range pathEntries {
@@ -54,7 +175,7 @@ func (em *EnvironmentManager) AddSystemEnvironmentVariable(varName, varValue str
 				}
 			}
 		}
-		
+
 		if existingPath != "" {
 			if !strings.HasSuffix(existingPath, ";") {
 				varValue = existingPath + ";" + varValue
@@ -70,7 +191,7 @@ func (em *EnvironmentManager) AddSystemEnvironmentVariable(varName, varValue str
 	} else {
 		err = key.SetStringValue(varName, varValue)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("无法设置环境变量: %v", err)
 	}
@@ -87,7 +208,7 @@ func (em *EnvironmentManager) AddSystemEnvironmentVariable(varName, varValue str
 // AddPathVariable 专门用于添加PATH环境变量
 func (em *EnvironmentManager) AddPathVariable(pathValue string) error {
 	pathValue = strings.Trim(pathValue, "\"")
-	
+
 	if !filepath.IsAbs(pathValue) {
 		return fmt.Errorf("必须提供绝对路径")
 	}
@@ -146,8 +267,8 @@ func (em *EnvironmentManager) ValidatePathExists(path string) bool {
 
 // GetSystemEnvironmentVariable 获取系统环境变量值
 func (em *EnvironmentManager) GetSystemEnvironmentVariable(varName string) (string, error) {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, 
-		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, 
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
 		registry.QUERY_VALUE)
 	if err != nil {
 		return "", fmt.Errorf("无法打开系统环境变量注册表: %v", err)
@@ -168,9 +289,9 @@ func (em *EnvironmentManager) GetSystemEnvironmentVariable(varName string) (stri
 // DiagnoseEnvironmentAccess 诊断环境变量访问权限
 func (em *EnvironmentManager) DiagnoseEnvironmentAccess() (map[string]interface{}, error) {
 	result := make(map[string]interface{})
-	
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, 
-		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, 
+
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
 		registry.QUERY_VALUE)
 	if err != nil {
 		result["registry_read"] = false
@@ -179,9 +300,9 @@ func (em *EnvironmentManager) DiagnoseEnvironmentAccess() (map[string]interface{
 		result["registry_read"] = true
 		key.Close()
 	}
-	
-	key, err = registry.OpenKey(registry.LOCAL_MACHINE, 
-		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, 
+
+	key, err = registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
 		registry.SET_VALUE)
 	if err != nil {
 		result["registry_write"] = false
@@ -190,9 +311,9 @@ func (em *EnvironmentManager) DiagnoseEnvironmentAccess() (map[string]interface{
 		result["registry_write"] = true
 		key.Close()
 	}
-	
-	key, err = registry.OpenKey(registry.LOCAL_MACHINE, 
-		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, 
+
+	key, err = registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
 		registry.ALL_ACCESS)
 	if err != nil {
 		result["registry_full"] = false
@@ -201,7 +322,7 @@ func (em *EnvironmentManager) DiagnoseEnvironmentAccess() (map[string]interface{
 		result["registry_full"] = true
 		key.Close()
 	}
-	
+
 	pathValue, err := em.GetSystemEnvironmentVariable("PATH")
 	if err != nil {
 		result["path_read"] = false
@@ -210,6 +331,6 @@ func (em *EnvironmentManager) DiagnoseEnvironmentAccess() (map[string]interface{
 		result["path_read"] = true
 		result["path_length"] = len(pathValue)
 	}
-	
+
 	return result, nil
 }
