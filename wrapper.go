@@ -100,7 +100,8 @@ func (esw *EmbeddedServiceWrapper) startTargetProcess() error {
 		log.Printf("创建日志目录失败: %v", err)
 	}
 
-	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", esw.serviceName))
+	timestamp := time.Now().Format("20060102_150405")
+	logFile := filepath.Join(logDir, fmt.Sprintf("%s_%s.log", esw.serviceName, timestamp))
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Printf("打开日志文件失败: %v", err)
@@ -108,9 +109,9 @@ func (esw *EmbeddedServiceWrapper) startTargetProcess() error {
 		esw.process.Stdout = file
 		esw.process.Stderr = file
 
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		formattedTimestamp := time.Now().Format("2006-01-02 15:04:05")
 		header := fmt.Sprintf("=== 服务日志开始 ===\n服务名称: %s\n启动时间: %s\n可执行文件: %s\n工作目录: %s\n参数: %s\n========================\n\n",
-			esw.serviceName, timestamp, esw.config.ExePath, esw.config.WorkingDir, esw.config.Args)
+			esw.serviceName, formattedTimestamp, esw.config.ExePath, esw.config.WorkingDir, esw.config.Args)
 		if _, err = file.WriteString(header); err != nil {
 			log.Printf("写入日志头信息失败: %v", err)
 		}

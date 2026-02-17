@@ -388,14 +388,27 @@ func (a *App) DiagnoseEnvironmentAccess() (map[string]interface{}, error) {
 	return a.environmentManager.DiagnoseEnvironmentAccess()
 }
 
-// GetServiceLogs 获取服务日志内容
+// GetServiceLogs 获取服务日志内容（最新日志）
 func (a *App) GetServiceLogs(serviceID string) (string, error) {
 	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
-	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", serviceID))
 
-	log.Printf("GetServiceLogs: 尝试读取日志文件: %s", logFile)
+	log.Printf("GetServiceLogs: 查找服务 %s 的日志文件", serviceID)
 
-	content, err := os.ReadFile(logFile)
+	files, err := filepath.Glob(filepath.Join(logDir, fmt.Sprintf("%s_*.log", serviceID)))
+	if err != nil {
+		log.Printf("GetServiceLogs: 查找日志文件失败: %v", err)
+		return "", fmt.Errorf("查找日志文件失败: %v", err)
+	}
+
+	if len(files) == 0 {
+		log.Printf("GetServiceLogs: 未找到日志文件")
+		return "", fmt.Errorf("未找到日志文件")
+	}
+
+	latestFile := files[len(files)-1]
+	log.Printf("GetServiceLogs: 找到 %d 个日志文件，使用最新的: %s", len(files), latestFile)
+
+	content, err := os.ReadFile(latestFile)
 	if err != nil {
 		log.Printf("GetServiceLogs: 读取日志文件失败: %v", err)
 		return "", fmt.Errorf("读取日志文件失败: %v", err)
@@ -405,20 +418,26 @@ func (a *App) GetServiceLogs(serviceID string) (string, error) {
 	return string(content), nil
 }
 
-// GetServiceLogsPath 获取服务日志文件路径
+// GetServiceLogsPath 获取服务日志文件路径（最新日志）
 func (a *App) GetServiceLogsPath(serviceID string) (string, error) {
 	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
-	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", serviceID))
 
-	log.Printf("GetServiceLogsPath: 检查日志文件: %s", logFile)
+	log.Printf("GetServiceLogsPath: 查找服务 %s 的日志文件", serviceID)
 
-	if _, err := os.Stat(logFile); err != nil {
-		log.Printf("GetServiceLogsPath: 日志文件不存在: %v", err)
+	files, err := filepath.Glob(filepath.Join(logDir, fmt.Sprintf("%s_*.log", serviceID)))
+	if err != nil {
+		log.Printf("GetServiceLogsPath: 查找日志文件失败: %v", err)
+		return "", fmt.Errorf("查找日志文件失败: %v", err)
+	}
+
+	if len(files) == 0 {
+		log.Printf("GetServiceLogsPath: 未找到日志文件")
 		return "", fmt.Errorf("日志文件不存在")
 	}
 
-	log.Printf("GetServiceLogsPath: 日志文件存在")
-	return logFile, nil
+	latestFile := files[len(files)-1]
+	log.Printf("GetServiceLogsPath: 找到 %d 个日志文件，返回最新的: %s", len(files), latestFile)
+	return latestFile, nil
 }
 
 // OpenLogsDirectory 打开日志目录
