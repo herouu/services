@@ -964,8 +964,8 @@ function App() {
       </Dialog>
 
       {/* 日志查看对话框 */}
-      <Dialog open={isLogsDialogOpen} onOpenChange={(_, data) => setIsLogsDialogOpen(data.open)} size="large">
-        <DialogSurface>
+      <Dialog open={isLogsDialogOpen} onOpenChange={(_, data) => setIsLogsDialogOpen(data.open)} size="medium">
+        <DialogSurface style={{ maxWidth: '800px' }}>
           <DialogBody>
             <DialogTitle>服务日志 - {serviceToViewLogs?.name}</DialogTitle>
             <DialogContent>
@@ -974,7 +974,8 @@ function App() {
                 border: '1px solid #e0e0e0', 
                 borderRadius: '4px', 
                 padding: '12px', 
-                maxHeight: '400px', 
+                maxHeight: '500px', 
+                minHeight: '300px',
                 overflow: 'auto',
                 fontFamily: 'Consolas, Monaco, monospace',
                 fontSize: '13px',
@@ -988,6 +989,7 @@ function App() {
             <DialogActions>
               <Button 
                 appearance="secondary" 
+                size="small"
                 icon={<Folder24Regular />}
                 onClick={handleOpenLogsDirectory}
               >
@@ -995,6 +997,7 @@ function App() {
               </Button>
               <Button 
                 appearance="secondary" 
+                size="small"
                 icon={<Copy24Regular />}
                 onClick={handleCopyLogsPath}
               >
@@ -1002,6 +1005,7 @@ function App() {
               </Button>
               <Button 
                 appearance="primary" 
+                size="small"
                 onClick={() => setIsLogsDialogOpen(false)}
               >
                 关闭
