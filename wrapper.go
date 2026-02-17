@@ -95,13 +95,35 @@ func (esw *EmbeddedServiceWrapper) startTargetProcess() error {
 		HideWindow: true,
 	}
 
-	err := esw.process.Start()
+	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		log.Printf("创建日志目录失败: %v", err)
+	}
+
+	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", esw.serviceName))
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("打开日志文件失败: %v", err)
+	} else {
+		esw.process.Stdout = file
+		esw.process.Stderr = file
+
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		header := fmt.Sprintf("=== 服务日志开始 ===\n服务名称: %s\n启动时间: %s\n可执行文件: %s\n工作目录: %s\n参数: %s\n========================\n\n",
+			esw.serviceName, timestamp, esw.config.ExePath, esw.config.WorkingDir, esw.config.Args)
+		if _, err = file.WriteString(header); err != nil {
+			log.Printf("写入日志头信息失败: %v", err)
+		}
+		file.Sync()
+	}
+
+	err = esw.process.Start()
 	if err != nil {
 		return fmt.Errorf("启动目标程序失败: %v", err)
 	}
 
 	esw.isRunning = true
-	log.Printf("目标程序已启动: %s，PID: %d", esw.config.ExePath, esw.process.Process.Pid)
+	log.Printf("目标程序已启动: %s，PID: %d，日志文件: %s", esw.config.ExePath, esw.process.Process.Pid, logFile)
 	return nil
 }
 

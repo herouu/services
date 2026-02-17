@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -37,8 +39,8 @@ type ServiceConfig struct {
 }
 
 type App struct {
-	ctx               context.Context
-	serviceManager    *WindowsServiceManager
+	ctx                context.Context
+	serviceManager     *WindowsServiceManager
 	environmentManager *EnvironmentManager
 }
 
@@ -48,6 +50,7 @@ func NewApp() *App {
 		environmentManager: NewEnvironmentManager(),
 	}
 }
+
 // startup 在应用启动时调用
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -383,4 +386,53 @@ func (a *App) ValidatePathExists(path string) bool {
 // DiagnoseEnvironmentAccess 诊断环境变量访问权限
 func (a *App) DiagnoseEnvironmentAccess() (map[string]interface{}, error) {
 	return a.environmentManager.DiagnoseEnvironmentAccess()
+}
+
+// GetServiceLogs 获取服务日志内容
+func (a *App) GetServiceLogs(serviceID string) (string, error) {
+	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
+	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", serviceID))
+
+	log.Printf("GetServiceLogs: 尝试读取日志文件: %s", logFile)
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		log.Printf("GetServiceLogs: 读取日志文件失败: %v", err)
+		return "", fmt.Errorf("读取日志文件失败: %v", err)
+	}
+
+	log.Printf("GetServiceLogs: 成功读取日志文件，大小: %d 字节", len(content))
+	return string(content), nil
+}
+
+// GetServiceLogsPath 获取服务日志文件路径
+func (a *App) GetServiceLogsPath(serviceID string) (string, error) {
+	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
+	logFile := filepath.Join(logDir, fmt.Sprintf("%s.log", serviceID))
+
+	log.Printf("GetServiceLogsPath: 检查日志文件: %s", logFile)
+
+	if _, err := os.Stat(logFile); err != nil {
+		log.Printf("GetServiceLogsPath: 日志文件不存在: %v", err)
+		return "", fmt.Errorf("日志文件不存在")
+	}
+
+	log.Printf("GetServiceLogsPath: 日志文件存在")
+	return logFile, nil
+}
+
+// OpenLogsDirectory 打开日志目录
+func (a *App) OpenLogsDirectory(serviceID string) error {
+	logDir := filepath.Join(os.Getenv("ProgramData"), "windows_service_logs")
+
+	log.Printf("OpenLogsDirectory: 打开日志目录: %s", logDir)
+
+	if _, err := os.Stat(logDir); err != nil {
+		log.Printf("OpenLogsDirectory: 日志目录不存在: %v", err)
+		return fmt.Errorf("日志目录不存在")
+	}
+
+	runtime.BrowserOpenURL(a.ctx, "file:///"+logDir)
+	log.Printf("OpenLogsDirectory: 已打开日志目录")
+	return nil
 }

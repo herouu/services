@@ -34,7 +34,8 @@ import {
   ArrowClockwise24Regular,
   BuildingMultiple24Regular,
   Document24Regular,
-  Folder24Regular
+  Folder24Regular,
+  Copy24Regular
 } from '@fluentui/react-icons';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 import './App.css';
@@ -54,15 +55,19 @@ import {
   AddPathVariable,
   OpenSystemEnvironmentSettings,
   ValidatePathExists,
-  DiagnoseEnvironmentAccess
+  DiagnoseEnvironmentAccess,
+  GetServiceLogs,
+  GetServiceLogsPath,
+  OpenLogsDirectory
 } from "../wailsjs/go/main/App";
 
 // 服务行组件，使用memo优化
-const ServiceRow = memo(({ service, onStart, onStop, onDelete, onAutoStartToggle }) => {
+const ServiceRow = memo(({ service, onStart, onStop, onDelete, onAutoStartToggle, onViewLogs }) => {
   const handleStart = useCallback(() => onStart(service.id), [service.id, onStart]);
   const handleStop = useCallback(() => onStop(service.id), [service.id, onStop]);
   const handleDelete = useCallback(() => onDelete(service.id), [service.id, onDelete]);
   const handleAutoStartToggle = useCallback((checked) => onAutoStartToggle(service.id, checked), [service.id, onAutoStartToggle]);
+  const handleViewLogs = useCallback(() => onViewLogs(service.id, service.name), [service.id, service.name, onViewLogs]);
 
   return (
     <TableRow key={service.id} className="win11-table-row">
@@ -130,6 +135,16 @@ const ServiceRow = memo(({ service, onStart, onStop, onDelete, onAutoStartToggle
             </Tooltip>
           )}
           
+          <Tooltip content="查看日志" relationship="label">
+            <Button
+              size="small"
+              appearance="subtle"
+              icon={<Document24Regular />}
+              onClick={handleViewLogs}
+              className="win11-button"
+            />
+          </Tooltip>
+          
           <Tooltip content="删除服务" relationship="label">
             <Button
               size="small"
@@ -153,7 +168,10 @@ function App() {
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEnvDialogOpen, setIsEnvDialogOpen] = useState(false);
+  const [isLogsDialogOpen, setIsLogsDialogOpen] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState(null);
+  const [serviceToViewLogs, setServiceToViewLogs] = useState(null);
+  const [serviceLogs, setServiceLogs] = useState('');
   const [adminPrivileges, setAdminPrivileges] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
   const [showAdminWarning, setShowAdminWarning] = useState(false);
@@ -438,6 +456,46 @@ function App() {
       showToast('错误', '打开系统环境变量设置失败: ' + error, 'error');
     }
   }, [showToast]);
+
+  const handleViewLogs = useCallback(async (serviceId, serviceName) => {
+    try {
+      setServiceToViewLogs({ id: serviceId, name: serviceName });
+      let logs = '';
+      
+      try {
+        logs = await GetServiceLogs(serviceId);
+      } catch (apiError) {
+        logs = `获取日志失败: ${apiError.message}\n\n服务可能尚未启动，或者日志文件不存在。\n\n请尝试：\n1. 确保服务已启动\n2. 检查服务的可执行文件路径是否正确\n3. 重启服务管理器`;
+      }
+      
+      setServiceLogs(logs);
+      setIsLogsDialogOpen(true);
+    } catch (error) {
+      showToast('错误', '打开日志查看器失败: ' + error, 'error');
+    }
+  }, [showToast]);
+
+  const handleOpenLogsDirectory = useCallback(async () => {
+    try {
+      await OpenLogsDirectory(serviceToViewLogs?.id);
+    } catch (error) {
+      showToast('错误', '打开日志目录失败: ' + error, 'error');
+    }
+  }, [serviceToViewLogs?.id, showToast]);
+
+  const handleCopyLogsPath = useCallback(async () => {
+    try {
+      const logPath = await GetServiceLogsPath(serviceToViewLogs?.id);
+      if (logPath) {
+        await navigator.clipboard.writeText(logPath);
+        showToast('成功', '日志路径已复制到剪贴板', 'success');
+      } else {
+        showToast('错误', '日志文件不存在', 'error');
+      }
+    } catch (error) {
+      showToast('错误', '复制日志路径失败: ' + error, 'error');
+    }
+  }, [serviceToViewLogs?.id, showToast]);
 
 
   const columns = useMemo(() => [
@@ -854,6 +912,7 @@ function App() {
                       onStop={handleStopService}
                       onDelete={handleDeleteService}
                       onAutoStartToggle={handleAutoStartToggle}
+                      onViewLogs={handleViewLogs}
                     />
                   ))}
                 </TableBody>
@@ -898,6 +957,54 @@ function App() {
                 style={{ backgroundColor: '#d13438', borderColor: '#d13438' }}
               >
                 删除
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+
+      {/* 日志查看对话框 */}
+      <Dialog open={isLogsDialogOpen} onOpenChange={(_, data) => setIsLogsDialogOpen(data.open)} size="large">
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>服务日志 - {serviceToViewLogs?.name}</DialogTitle>
+            <DialogContent>
+              <div style={{ 
+                backgroundColor: '#f5f5f5', 
+                border: '1px solid #e0e0e0', 
+                borderRadius: '4px', 
+                padding: '12px', 
+                maxHeight: '400px', 
+                overflow: 'auto',
+                fontFamily: 'Consolas, Monaco, monospace',
+                fontSize: '13px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: '#333'
+              }}>
+                {serviceLogs || '暂无日志'}
+              </div>
+            </DialogContent>
+            <DialogActions>
+              <Button 
+                appearance="secondary" 
+                icon={<Folder24Regular />}
+                onClick={handleOpenLogsDirectory}
+              >
+                打开日志目录
+              </Button>
+              <Button 
+                appearance="secondary" 
+                icon={<Copy24Regular />}
+                onClick={handleCopyLogsPath}
+              >
+                复制路径
+              </Button>
+              <Button 
+                appearance="primary" 
+                onClick={() => setIsLogsDialogOpen(false)}
+              >
+                关闭
               </Button>
             </DialogActions>
           </DialogBody>
