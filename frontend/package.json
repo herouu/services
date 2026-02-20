@@ -9,15 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@fluentui/react-components": "^9.69.0",
-    "@fluentui/react-icons": "^2.0.309",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@fluentui/web-components": "^2.6.1",
+    "@microsoft/fast-element": "^1.14.0",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
-    "@types/react": "^18.0.17",
-    "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^2.0.1",
-    "vite": "^3.0.7"
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
   }
 }
